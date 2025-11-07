@@ -1,0 +1,40 @@
+const express = require('express');
+const router = express.Router();
+const authRoutes = require('./authRoutes');
+const roomRoutes = require('./roomRoutes');
+const roomSessionRoutes = require('./roomSessionRoutes');
+const timetableRoutes = require('./timetableRoutes');
+const adminTimetableRoutes = require('./adminTimetableRoutes');
+const attendanceRoutes = require('./attendanceRoutes');
+const upcomingClassesRoutes = require('./upcomingClassesRoutes');
+const analyticsRoutes = require('./analyticsRoutes');
+const subjectRoutes = require('./subjectRoutes');
+const facultyRoutes = require('./facultyRoutes');
+const studentRoutes = require('./studentRoutes');
+const sectionRoutes = require('./sectionRoutes');
+const mappingRoutes = require('./mappingRoutes');
+const occupancyRoutes = require('./occupancyRoutes');
+const blockRoutes = require('./blockRoutes');
+const notificationRoutes = require('./notificationRoutes');
+const conflictRoutes = require('./conflictRoutes');
+
+router.use('/auth', authRoutes);
+router.use('/rooms', roomRoutes);
+router.use('/room-sessions', roomSessionRoutes);
+router.use('/timetables', timetableRoutes);
+router.use('/timetable', adminTimetableRoutes);
+router.use('/attendance', attendanceRoutes);
+router.use('/upcoming-classes', upcomingClassesRoutes);
+router.use('/analytics', analyticsRoutes);
+router.use('/subjects', subjectRoutes);
+router.use('/faculty', facultyRoutes);
+router.use('/students', studentRoutes);
+router.use('/sections', sectionRoutes);
+router.use('/mappings', mappingRoutes);
+router.use('/occupancy', occupancyRoutes);
+router.use('/blocks', blockRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/conflicts', conflictRoutes);
+
+module.exports = router;
+
