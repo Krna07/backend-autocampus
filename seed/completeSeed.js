@@ -175,8 +175,8 @@ async function completeSeed() {
     
     // Admin User
     const adminUser = await User.create({
-      name: "System Administrator",
-      email: "admin@smartcampus.edu",
+      name: "Tushar (Admin)",
+      email: "tushar110704@gmail.com",
       passwordHash: adminPassword,
       role: "admin",
       mobile: "9999999999"

@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const emailService = require('./emailService');
+const emailService = require('./nodemailerService'); // Switched to Nodemailer
 
 class NotificationService {
   constructor() {
