@@ -14,7 +14,7 @@ class NotificationService {
       // Save notification to database
       const notification = await Notification.createNotification(userId, title, message, type, data, priority);
 
-      // Send real-time notification via Socket.IO
+      // Send real-time nfication via Socket.IO
       if (io) {
         const userIdStr = userId.toString();
         console.log(`Sending notification to user_${userIdStr}: ${title}`);
