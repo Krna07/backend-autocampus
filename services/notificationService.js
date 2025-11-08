@@ -292,11 +292,23 @@ class NotificationService {
           )
         )];
         
-        // Get affected faculty users
+        // Get affected faculty records to get their emails
         if (affectedFacultyIds.length > 0) {
-          affectedFacultyUsers = await User.find({
+          const Faculty = require('../models/Faculty');
+          const affectedFacultyRecords = await Faculty.find({
             _id: { $in: affectedFacultyIds }
           });
+          
+          // Get faculty emails
+          const facultyEmails = affectedFacultyRecords.map(f => f.email).filter(e => e);
+          
+          // Find User records by matching emails
+          if (facultyEmails.length > 0) {
+            affectedFacultyUsers = await User.find({
+              email: { $in: facultyEmails },
+              role: 'faculty'
+            });
+          }
         }
         
         // Get unique section IDs from affected sessions
