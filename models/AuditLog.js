@@ -71,12 +71,12 @@ auditLogSchema.index({ changeType: 1, timestamp: -1 });
 auditLogSchema.index({ 'metadata.conflictId': 1, timestamp: -1 });
 
 // Virtual for formatted timestamp
-auditLogSchema.virtual('formattedTimestamp').get(function() {
+auditLogSchema.virtual('formattedTimestamp').get(function () {
   return this.timestamp.toLocaleString();
 });
 
 // Static method to create audit log entry
-auditLogSchema.statics.logChange = async function(logData) {
+auditLogSchema.statics.logChange = async function (logData) {
   return this.create({
     adminId: logData.adminId,
     adminName: logData.adminName,
@@ -95,7 +95,7 @@ auditLogSchema.statics.logChange = async function(logData) {
 };
 
 // Static method to query logs with filters
-auditLogSchema.statics.queryLogs = async function(filters = {}, options = {}) {
+auditLogSchema.statics.queryLogs = async function (filters = {}, options = {}) {
   const {
     startDate,
     endDate,
@@ -163,7 +163,7 @@ auditLogSchema.statics.queryLogs = async function(filters = {}, options = {}) {
 };
 
 // Static method to get entry history
-auditLogSchema.statics.getEntryHistory = async function(timetableEntryId) {
+auditLogSchema.statics.getEntryHistory = async function (timetableEntryId) {
   return this.find({ timetableEntryId })
     .populate('adminId', 'name email')
     .populate('oldRoomId', 'code name')
@@ -173,7 +173,7 @@ auditLogSchema.statics.getEntryHistory = async function(timetableEntryId) {
 };
 
 // Static method to generate audit report
-auditLogSchema.statics.generateAuditReport = async function(startDate, endDate) {
+auditLogSchema.statics.generateAuditReport = async function (startDate, endDate) {
   const query = {
     timestamp: {
       $gte: new Date(startDate),
@@ -213,7 +213,7 @@ auditLogSchema.statics.generateAuditReport = async function(startDate, endDate) 
 };
 
 // Static method to delete old logs (for maintenance)
-auditLogSchema.statics.deleteOldLogs = async function(daysOld = 365) {
+auditLogSchema.statics.deleteOldLogs = async function (daysOld = 365) {
   const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
   return this.deleteMany({ timestamp: { $lt: cutoffDate } });
 };

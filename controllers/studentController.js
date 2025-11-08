@@ -4,6 +4,21 @@ const Timetable = require('../models/Timetable');
 const AdminTimetable = require('../models/AdminTimetable');
 const Attendance = require('../models/Attendance');
 
+// Get all students (Admin only)
+exports.getAllStudents = async (req, res) => {
+  try {
+    const students = await User.find({ role: 'student' })
+      .populate('sectionRef', 'name code year semester')
+      .select('-passwordHash')
+      .sort({ name: 1 });
+
+    res.json(students);
+  } catch (error) {
+    console.error('Error fetching all students:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Get student's dashboard data
 exports.getStudentDashboard = async (req, res) => {
   try {

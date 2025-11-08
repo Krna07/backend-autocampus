@@ -11,23 +11,27 @@ const initSockets = (io) => {
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       
       if (!token) {
+        console.log('[Socket.IO] Connection attempt without token');
         return next(new Error('Authentication error'));
       }
 
       const decoded = verifyToken(token);
       if (!decoded) {
+        console.log('[Socket.IO] Invalid token provided');
         return next(new Error('Invalid token'));
       }
 
       const user = await User.findById(decoded.userId);
       if (!user) {
-        return next(new Error('User not found'));
+        console.log(`[Socket.IO] User not found for userId: ${decoded.userId} - Token may be from old database. User should logout and login again.`);
+        return next(new Error('User not found - Please logout and login again'));
       }
 
       socket.userId = user._id.toString();
       socket.userRole = user.role;
       next();
     } catch (error) {
+      console.error('[Socket.IO] Authentication error:', error);
       next(new Error('Authentication error'));
     }
   });
