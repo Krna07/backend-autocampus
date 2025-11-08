@@ -26,6 +26,8 @@ const notificationSchema = new mongoose.Schema({
       'room_change',
       'session_cancelled',
       'room_status_change',
+      'room_status_change_detailed',
+      'room_booking',
       'room_idle',
       'system_announcement',
       'attendance_reminder',

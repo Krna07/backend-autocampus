@@ -1,44 +1,11 @@
-const nodemailer = require('nodemailer');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const emailService = require('./emailService');
 
 class NotificationService {
   constructor() {
-    this.transporter = null;
-    this.initializeTransporter();
-  }
-
-  initializeTransporter() {
-    // Use Gmail or SMTP based on env vars
-    this.transporter = nodemailer.createTransport({
-      service: process.env.EMAIL_SERVICE || 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
-  }
-
-  async sendEmail(to, subject, html) {
-    try {
-      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.log(`[Email Simulation] To: ${to}, Subject: ${subject}`);
-        return { success: true, simulated: true };
-      }
-
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to,
-        subject,
-        html
-      };
-
-      const info = await this.transporter.sendMail(mailOptions);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      console.error('Email send error:', error);
-      return { success: false, error: error.message };
-    }
+    // EmailJS is now handled by emailService
+    console.log('✅ NotificationService initialized with EmailJS');
   }
 
   // Helper method to create and send notifications
@@ -46,12 +13,12 @@ class NotificationService {
     try {
       // Save notification to database
       const notification = await Notification.createNotification(userId, title, message, type, data, priority);
-      
+
       // Send real-time notification via Socket.IO
       if (io) {
         const userIdStr = userId.toString();
         console.log(`Sending notification to user_${userIdStr}: ${title}`);
-        
+
         io.to(`user_${userIdStr}`).emit('notification:new', {
           id: notification._id,
           title,
@@ -63,16 +30,16 @@ class NotificationService {
         });
 
         // Also emit unread count update
-        const unreadCount = await Notification.countDocuments({ 
-          userId, 
-          isRead: false 
+        const unreadCount = await Notification.countDocuments({
+          userId,
+          isRead: false
         });
-        
+
         io.to(`user_${userIdStr}`).emit('notification:unread-count', {
           unreadCount
         });
       }
-      
+
       return { success: true, notification };
     } catch (error) {
       console.error('Error creating notification:', error);
@@ -112,7 +79,7 @@ class NotificationService {
       // Send emails and create notifications
       let emailsSent = 0;
       let notificationsCreated = 0;
-      
+
       const title = `Timetable Published - ${section.name}`;
       const message = `Timetable for ${section.name} has been published`;
       const notificationData = {
@@ -126,7 +93,7 @@ class NotificationService {
           const result = await this.sendEmail(user.email, subject, html);
           if (result.success) emailsSent++;
         }
-        
+
         // Create and send notification
         const notificationResult = await this.createAndSendNotification(
           user._id,
@@ -137,7 +104,7 @@ class NotificationService {
           'high',
           io
         );
-        
+
         if (notificationResult.success) {
           notificationsCreated++;
         }
@@ -233,16 +200,16 @@ class NotificationService {
         if (io && user) {
           const userIdStr = user._id.toString();
           const notificationMessage = `Your timetable has been generated with ${sessions.length} assigned period${sessions.length !== 1 ? 's' : ''}`;
-          
+
           console.log(`Sending timetable notification to user_${userIdStr} for faculty ${faculty.name}`);
-          
+
           // Emit notification:new for the NotificationCard component
           io.to(`user_${userIdStr}`).emit('notification:new', {
             message: notificationMessage,
             type: 'timetable_generated',
             timestamp: new Date()
           });
-          
+
           // Also emit timetable:faculty-generated for specific handling
           io.to(`user_${userIdStr}`).emit('timetable:faculty-generated', {
             message: 'Your timetable has been generated',
@@ -263,58 +230,386 @@ class NotificationService {
 
   async notifyRoomStatusChange(room, io) {
     try {
-      const users = await User.find({ role: { $in: ['faculty', 'admin'] } });
+      const Timetable = require('../models/Timetable');
+      const Section = require('../models/Section');
+      const Subject = require('../models/Subject');
+      const Faculty = require('../models/Faculty');
+      
+      // Find all timetables that use this room
+      const affectedTimetables = await Timetable.find({
+        'schedule.roomRef': room._id,
+        isPublished: true
+      })
+      .populate('sectionRef', 'name year')
+      .populate('schedule.subjectRef', 'name code')
+      .populate('schedule.facultyRef', 'name email');
 
-      const subject = `Room Status Update - ${room.code}`;
-      const html = `
-        <h2>Room Status Changed</h2>
-        <p>Room <strong>${room.code}</strong> status has been updated to <strong>${room.status}</strong>.</p>
-      `;
+      // Get detailed information about affected sessions
+      const affectedSessions = [];
+      const affectedSections = new Set();
+      const affectedSubjects = new Set();
+      const affectedFaculty = new Set();
 
-      if (io) {
-        // Emit room:update for real-time updates
-        io.emit('room:update', {
-          roomId: room._id,
-          status: room.status,
-          room: room
-        });
-
-        // Send notification:new to admins when room becomes idle
-        if (room.status === 'idle') {
-          const adminUsers = users.filter(u => u.role === 'admin');
-          adminUsers.forEach(admin => {
-            const userIdStr = admin._id.toString();
-            console.log(`Sending room idle notification to admin user_${userIdStr}`);
-            
-            io.to(`user_${userIdStr}`).emit('notification:new', {
-              message: `Room ${room.code} is now idle`,
-              type: 'room_idle',
-              roomId: room._id,
-              roomCode: room.code,
-              timestamp: new Date()
+      affectedTimetables.forEach(timetable => {
+        timetable.schedule.forEach(session => {
+          if (session.roomRef && session.roomRef.toString() === room._id.toString()) {
+            affectedSessions.push({
+              timetableId: timetable._id,
+              sectionName: timetable.sectionRef?.name || 'Unknown',
+              sectionYear: timetable.sectionRef?.year || 'Unknown',
+              subjectName: session.subjectRef?.name || 'Unknown',
+              subjectCode: session.subjectRef?.code || 'Unknown',
+              facultyName: session.facultyRef?.name || 'Unknown',
+              facultyEmail: session.facultyRef?.email || 'Unknown',
+              day: session.day,
+              period: session.period,
+              startTime: session.startTime,
+              endTime: session.endTime
             });
+            
+            if (timetable.sectionRef?.name) affectedSections.add(timetable.sectionRef.name);
+            if (session.subjectRef?.name) affectedSubjects.add(session.subjectRef.name);
+            if (session.facultyRef?.name) affectedFaculty.add(session.facultyRef.name);
+          }
+        });
+      });
+
+      // Always notify all admins (they need to know about all room changes)
+      const allAdmins = await User.find({ role: 'admin' });
+      
+      // Get ONLY affected faculty and students (not all)
+      let affectedFacultyUsers = [];
+      let affectedStudents = [];
+      
+      if (affectedSessions.length > 0) {
+        // Get unique faculty IDs from affected sessions
+        const affectedFacultyIds = [...new Set(
+          affectedTimetables.flatMap(t => 
+            t.schedule
+              .filter(s => s.roomRef && s.roomRef.toString() === room._id.toString())
+              .map(s => s.facultyRef?._id)
+              .filter(id => id)
+          )
+        )];
+        
+        // Get affected faculty users
+        if (affectedFacultyIds.length > 0) {
+          affectedFacultyUsers = await User.find({
+            _id: { $in: affectedFacultyIds }
           });
         }
-
-        // Send notification:new to all users for room status changes
-        users.forEach(user => {
-          const userIdStr = user._id.toString();
-          io.to(`user_${userIdStr}`).emit('notification:new', {
-            message: `Room ${room.code} status changed to ${room.status}`,
-            type: 'room_status_change',
-            roomId: room._id,
-            roomCode: room.code,
-            status: room.status,
-            timestamp: new Date()
+        
+        // Get unique section IDs from affected sessions
+        const affectedSectionIds = [...new Set(
+          affectedTimetables.map(t => t.sectionRef?._id).filter(id => id)
+        )];
+        
+        // Get students from affected sections
+        if (affectedSectionIds.length > 0) {
+          affectedStudents = await User.find({
+            role: 'student',
+            sectionRef: { $in: affectedSectionIds }
           });
+        }
+      }
+      
+      const title = `🚨 Room Status Alert: ${room.code}`;
+      
+      // Create detailed message with session breakdown
+      let message = '';
+      if (affectedSessions.length > 0) {
+        const sectionsArray = Array.from(affectedSections);
+        const subjectsArray = Array.from(affectedSubjects);
+        const facultyArray = Array.from(affectedFaculty);
+        
+        message = `Room ${room.code} status changed to "${room.status}". ${affectedSessions.length} scheduled sessions affected across ${affectedSections.size} sections.\n\n`;
+        message += `📋 Affected Details:\n`;
+        message += `• Sections: ${sectionsArray.join(', ')}\n`;
+        message += `• Subjects: ${subjectsArray.join(', ')}\n`;
+        message += `• Faculty: ${facultyArray.join(', ')}\n\n`;
+        message += `📅 Sessions:\n`;
+        affectedSessions.forEach((session, index) => {
+          message += `${index + 1}. ${session.sectionName} - ${session.subjectName} (${session.facultyName})\n`;
+          message += `   ${session.day}, Period ${session.period} (${session.startTime}-${session.endTime})\n`;
         });
+      } else {
+        message = `Room ${room.code} status changed to "${room.status}". No active timetables affected.`;
+      }
+      
+      // Create detailed notification data
+      const notificationData = {
+        type: 'room_status_change_detailed',
+        title,
+        message,
+        data: {
+          roomId: room._id,
+          roomCode: room.code,
+          roomName: room.name,
+          roomType: room.type,
+          roomCapacity: room.capacity,
+          newStatus: room.status,
+          timestamp: new Date(),
+          affectedSessions: affectedSessions,
+          affectedCount: affectedSessions.length,
+          affectedSections: Array.from(affectedSections),
+          affectedSubjects: Array.from(affectedSubjects),
+          affectedFaculty: Array.from(affectedFaculty),
+          requiresAction: affectedSessions.length > 0 && room.status !== 'active'
+        }
+      };
+
+      let notificationsSent = 0;
+      let emailsSent = 0;
+
+      // Combine admins and affected faculty for email recipients
+      const emailRecipientUsers = [...allAdmins, ...affectedFacultyUsers];
+      
+      // Prepare recipients for bulk email (admins + affected faculty only)
+      const emailRecipients = emailRecipientUsers
+        .filter(user => user.email)
+        .map(user => ({
+          email: user.email,
+          name: user.name || (user.role === 'admin' ? 'Admin' : 'Faculty')
+        }));
+
+      // Send bulk emails using EmailJS (ONLY to admins and affected faculty)
+      if (emailRecipients.length > 0) {
+        const emailResults = await emailService.sendBulkEmails(
+          emailRecipients,
+          room,
+          affectedSessions,
+          affectedSections,
+          affectedSubjects,
+          affectedFaculty
+        );
+        emailsSent = emailResults.sent + emailResults.simulated;
       }
 
-      return { success: true };
+      // Create in-app notifications and send Socket.IO for admins and affected faculty
+      for (const user of emailRecipientUsers) {
+        // Create in-app notification
+        const notification = new Notification({
+          userId: user._id,
+          type: notificationData.type,
+          title: notificationData.title,
+          message: notificationData.message,
+          data: notificationData.data
+        });
+        await notification.save();
+        notificationsSent++;
+
+        // Send Socket.IO notification
+        if (io) {
+          const userIdStr = user._id.toString();
+          io.to(`user_${userIdStr}`).emit('notification:new', {
+            ...notificationData,
+            _id: notification._id,
+            createdAt: notification.createdAt
+          });
+        }
+      }
+
+      // Create in-app notifications for students (NO EMAIL, only notification)
+      if (affectedStudents.length > 0) {
+        const studentTitle = `📢 Room Change Notice: ${room.code}`;
+        const studentMessage = `Room ${room.code} status changed to "${room.status}". Your class schedule may be affected. Check with your faculty for updates.`;
+        
+        const studentNotificationData = {
+          type: 'room_status_change',
+          title: studentTitle,
+          message: studentMessage,
+          data: {
+            roomId: room._id,
+            roomCode: room.code,
+            roomName: room.name,
+            newStatus: room.status,
+            timestamp: new Date(),
+            affectedSections: Array.from(affectedSections)
+          }
+        };
+
+        for (const student of affectedStudents) {
+          // Create in-app notification for student
+          const notification = new Notification({
+            userId: student._id,
+            type: studentNotificationData.type,
+            title: studentNotificationData.title,
+            message: studentNotificationData.message,
+            data: studentNotificationData.data
+          });
+          await notification.save();
+          notificationsSent++;
+
+          // Send Socket.IO notification to student
+          if (io) {
+            const userIdStr = student._id.toString();
+            io.to(`user_${userIdStr}`).emit('notification:new', {
+              ...studentNotificationData,
+              _id: notification._id,
+              createdAt: notification.createdAt
+            });
+          }
+        }
+      }
+
+      console.log(`📧 Room Status Change: ${room.code}`);
+      console.log(`   ├─ Admins: ${allAdmins.length} (Email ✅ + Notification ✅)`);
+      console.log(`   ├─ Affected Faculty: ${affectedFacultyUsers.length} (Email ✅ + Notification ✅)`);
+      console.log(`   ├─ Affected Students: ${affectedStudents.length} (Notification only ✅)`);
+      console.log(`   ├─ Total Notifications: ${notificationsSent}`);
+      console.log(`   └─ Emails Sent: ${emailsSent}`);
+      console.log(`📊 Impact: ${affectedSessions.length} sessions, ${affectedSections.size} sections, ${affectedSubjects.size} subjects`);
+      
+      return {
+        success: true,
+        notificationsSent,
+        emailsSent,
+        affectedSessions: affectedSessions.length,
+        affectedSections: affectedSections.size
+      };
     } catch (error) {
-      console.error('Room notification error:', error);
+      console.error('Error sending room status change notifications:', error);
       return { success: false, error: error.message };
     }
+  }
+
+  // Helper method to generate detailed email HTML
+  generateRoomStatusChangeEmailHtml(room, affectedSessions, affectedSections, affectedSubjects, affectedFaculty) {
+    const sectionsArray = Array.from(affectedSections);
+    const subjectsArray = Array.from(affectedSubjects);
+    const facultyArray = Array.from(affectedFaculty);
+    
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+          <h1 style="margin: 0; font-size: 24px;">🚨 Room Status Alert</h1>
+          <p style="margin: 5px 0 0 0; opacity: 0.9;">Immediate attention required</p>
+        </div>
+        
+        <div style="background: white; padding: 20px; border: 1px solid #e5e7eb; border-top: none;">
+          <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="margin: 0 0 10px 0; color: #1f2937;">Room Information</h2>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">Room Code:</td>
+                <td style="padding: 5px 0; color: #1f2937;">${room.code}</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">Room Name:</td>
+                <td style="padding: 5px 0; color: #1f2937;">${room.name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">Type:</td>
+                <td style="padding: 5px 0; color: #1f2937;">${room.type}</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">Capacity:</td>
+                <td style="padding: 5px 0; color: #1f2937;">${room.capacity} students</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">New Status:</td>
+                <td style="padding: 5px 0;">
+                  <span style="background: ${room.status === 'active' ? '#10b981' : '#ef4444'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase;">
+                    ${room.status}
+                  </span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; font-weight: bold; color: #374151;">Changed At:</td>
+                <td style="padding: 5px 0; color: #1f2937;">${new Date().toLocaleString()}</td>
+              </tr>
+            </table>
+          </div>
+
+          ${affectedSessions.length > 0 ? `
+            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+              <h3 style="margin: 0 0 10px 0; color: #92400e;">⚠️ Impact Assessment</h3>
+              <p style="margin: 0; color: #92400e;">
+                <strong>${affectedSessions.length} scheduled sessions</strong> are affected across 
+                <strong>${sectionsArray.length} sections</strong>.
+              </p>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+              <h3 style="color: #1f2937; margin-bottom: 15px;">📅 Affected Sessions</h3>
+              <div style="max-height: 300px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <thead>
+                    <tr style="background: #f9fafb;">
+                      <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151;">Section</th>
+                      <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151;">Subject</th>
+                      <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151;">Faculty</th>
+                      <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151;">Day</th>
+                      <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151;">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${affectedSessions.map(session => `
+                      <tr>
+                        <td style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; color: #1f2937;">${session.sectionName}</td>
+                        <td style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; color: #1f2937;">${session.subjectName}</td>
+                        <td style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; color: #1f2937;">${session.facultyName}</td>
+                        <td style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; color: #1f2937;">${session.day}</td>
+                        <td style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; color: #1f2937;">${session.startTime}-${session.endTime}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+              <div style="background: #eff6ff; padding: 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 18px; font-weight: bold; color: #1d4ed8;">${sectionsArray.length}</div>
+                <div style="font-size: 12px; color: #1e40af; margin-top: 2px;">Sections</div>
+                <div style="font-size: 10px; color: #3b82f6; margin-top: 4px;">${sectionsArray.join(', ')}</div>
+              </div>
+              <div style="background: #f0fdf4; padding: 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 18px; font-weight: bold; color: #166534;">${subjectsArray.length}</div>
+                <div style="font-size: 12px; color: #15803d; margin-top: 2px;">Subjects</div>
+                <div style="font-size: 10px; color: #22c55e; margin-top: 4px;">${subjectsArray.slice(0, 3).join(', ')}${subjectsArray.length > 3 ? '...' : ''}</div>
+              </div>
+              <div style="background: #fdf4ff; padding: 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 18px; font-weight: bold; color: #7c2d12;">${facultyArray.length}</div>
+                <div style="font-size: 12px; color: #92400e; margin-top: 2px;">Faculty</div>
+                <div style="font-size: 10px; color: #a855f7; margin-top: 4px;">${facultyArray.slice(0, 2).join(', ')}${facultyArray.length > 2 ? '...' : ''}</div>
+              </div>
+            </div>
+          ` : `
+            <div style="background: #d1fae5; border-left: 4px solid #10b981; padding: 15px; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+              <h3 style="margin: 0 0 5px 0; color: #065f46;">✅ No Impact</h3>
+              <p style="margin: 0; color: #065f46;">This room is not currently assigned to any published timetables.</p>
+            </div>
+          `}
+
+          ${room.status !== 'active' && affectedSessions.length > 0 ? `
+            <div style="background: #fee2e2; border-left: 4px solid #dc2626; padding: 15px; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
+              <h3 style="margin: 0 0 10px 0; color: #991b1b;">🚨 Action Required</h3>
+              <p style="margin: 0 0 10px 0; color: #991b1b;">
+                Since this room is now <strong>${room.status}</strong>, the affected sessions need to be reassigned to alternative rooms.
+              </p>
+              <div style="margin-top: 15px;">
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/admin/conflicts" 
+                   style="background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  🔧 Resolve Conflicts
+                </a>
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/admin/rooms" 
+                   style="background: #6b7280; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-left: 10px;">
+                  🏫 Manage Rooms
+                </a>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+        
+        <div style="background: #f9fafb; padding: 15px; border-radius: 0 0 10px 10px; text-align: center; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0; font-size: 12px; color: #6b7280;">
+            This is an automated notification from Smart Campus Management System<br>
+            Generated at ${new Date().toLocaleString()}
+          </p>
+        </div>
+      </div>
+    `;
   }
 
   // New method for room change notifications
@@ -332,18 +627,18 @@ class NotificationService {
       }
 
       // Get all students in the section
-      const students = await User.find({ 
-        sectionRef: sectionId, 
-        role: 'student' 
+      const students = await User.find({
+        sectionRef: sectionId,
+        role: 'student'
       });
 
       // Get faculty teaching this subject
-      const faculty = await User.find({ 
+      const faculty = await User.find({
         role: 'faculty'
       });
 
       const message = `Room changed for ${subject.name} on ${day} Period ${period}: ${oldRoom.code} → ${newRoom.code}`;
-      
+
       const emailSubject = `Room Change Alert - ${subject.name}`;
       const emailHtml = `
         <h2>Room Change Notification</h2>
@@ -398,8 +693,8 @@ class NotificationService {
         }
       }
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         notified: students.length + faculty.length,
         studentsNotified: students.length,
         facultyNotified: faculty.length
@@ -424,13 +719,13 @@ class NotificationService {
       }
 
       // Get all students in the section
-      const students = await User.find({ 
-        sectionRef: sectionId, 
-        role: 'student' 
+      const students = await User.find({
+        sectionRef: sectionId,
+        role: 'student'
       });
 
       const message = `Class cancelled: ${subject.name} on ${day} Period ${period} in ${room.code}${reason ? ` - ${reason}` : ''}`;
-      
+
       const emailSubject = `Class Cancellation - ${subject.name}`;
       const emailHtml = `
         <h2>Class Cancellation Notice</h2>
@@ -464,8 +759,8 @@ class NotificationService {
         }
       }
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         notified: students.length
       };
     } catch (error) {
@@ -493,15 +788,15 @@ class NotificationService {
 
       const subject = `Timetable Deleted - ${timetableInfo.sectionName}`;
       const statusText = timetableInfo.isPublished ? 'published' : 'draft';
-      
+
       const html = `
         <h2>Timetable Deleted</h2>
         <p>The ${statusText} timetable for <strong>${timetableInfo.sectionName}</strong> has been deleted.</p>
         <p><strong>Deleted by:</strong> ${deletedByUser.name || deletedByUser.email}</p>
         <p><strong>Version:</strong> ${timetableInfo.version}</p>
         <p><strong>Generated on:</strong> ${new Date(timetableInfo.generatedAt).toLocaleString()}</p>
-        ${timetableInfo.isPublished ? 
-          '<p><strong>Note:</strong> This was a published timetable. Please check for a new timetable or contact administration.</p>' : 
+        ${timetableInfo.isPublished ?
+          '<p><strong>Note:</strong> This was a published timetable. Please check for a new timetable or contact administration.</p>' :
           '<p><strong>Note:</strong> This was a draft timetable. The deletion should not affect your current schedule.</p>'
         }
         <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/timetable">Check Current Timetable</a></p>
@@ -529,7 +824,7 @@ class NotificationService {
           const result = await this.sendEmail(user.email, subject, html);
           if (result.success) emailsSent++;
         }
-        
+
         // Create and send notification
         const notificationResult = await this.createAndSendNotification(
           user._id,
@@ -540,16 +835,16 @@ class NotificationService {
           timetableInfo.isPublished ? 'high' : 'medium',
           io
         );
-        
+
         if (notificationResult.success) {
           notificationsCreated++;
         }
       }
 
       console.log(`Notified ${users.length} users about timetable deletion (${emailsSent} emails, ${notificationsCreated} notifications created)`);
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         notified: users.length,
         emailsSent: emailsSent,
         notificationsCreated: notificationsCreated
@@ -563,8 +858,8 @@ class NotificationService {
   // New method for bulk notifications
   async sendBulkNotification(userIds, message, type, emailSubject, emailHtml, io) {
     try {
-      const users = await User.find({ 
-        _id: { $in: userIds } 
+      const users = await User.find({
+        _id: { $in: userIds }
       });
 
       let emailsSent = 0;
@@ -589,8 +884,8 @@ class NotificationService {
         }
       }
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         emailsSent: emailsSent,
         socketNotificationsSent: socketNotificationsSent,
         totalUsers: users.length
@@ -608,10 +903,10 @@ class NotificationService {
   async notifyRoomConflict(conflict, room, io = null) {
     try {
       console.log(`[NotificationService] Notifying admins about conflict for room ${room.code}`);
-      
+
       // Get all admin users
       const admins = await User.find({ role: 'admin' });
-      
+
       if (admins.length === 0) {
         console.log('[NotificationService] No admin users found');
         return { success: false, error: 'No admin users found' };
@@ -619,15 +914,15 @@ class NotificationService {
 
       const title = `Room Conflict Detected - ${room.code}`;
       const affectedCount = conflict.affectedEntries.length;
-      
+
       // Build affected slots summary
       const affectedSlots = conflict.affectedEntries
         .slice(0, 3) // Show first 3
         .map(entry => `${entry.day} ${entry.startTime}-${entry.endTime}`)
         .join(', ');
-      
+
       const moreText = affectedCount > 3 ? ` and ${affectedCount - 3} more` : '';
-      
+
       const message = `⚠️ Room ${room.code} is now ${room.status.replace('_', ' ')}. ${affectedCount} session(s) affected: ${affectedSlots}${moreText}. Click to auto-adjust or manually reassign rooms.`;
 
       // Email HTML template
@@ -739,7 +1034,7 @@ class NotificationService {
   async notifyRoomChange(oldRoom, newRoom, entry, io = null) {
     try {
       console.log(`[NotificationService] Notifying users about room change: ${oldRoom.code} -> ${newRoom.code}`);
-      
+
       // Get affected users (faculty and students in the section)
       const [faculty, students] = await Promise.all([
         User.findById(entry.facultyId),

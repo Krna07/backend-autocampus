@@ -17,6 +17,8 @@ const occupancyRoutes = require('./occupancyRoutes');
 const blockRoutes = require('./blockRoutes');
 const notificationRoutes = require('./notificationRoutes');
 const conflictRoutes = require('./conflictRoutes');
+const testRoutes = require('./testRoutes');
+const roomBookingRoutes = require('./roomBookingRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/rooms', roomRoutes);
@@ -35,6 +37,8 @@ router.use('/occupancy', occupancyRoutes);
 router.use('/blocks', blockRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/conflicts', conflictRoutes);
+router.use('/test', testRoutes);
+router.use('/room-bookings', roomBookingRoutes);
 
 module.exports = router;
 

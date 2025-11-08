@@ -179,5 +179,6 @@ userSchema.pre('save', function(next) {
   next();
 });
 
-module.exports = mongoose.model('User', userSchema);
+// Export existing model or create new one
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);
 

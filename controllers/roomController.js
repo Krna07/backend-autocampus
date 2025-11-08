@@ -246,3 +246,71 @@ exports.deleteRoom = async (req, res) => {
   }
 };
 
+// Bulk delete rooms
+exports.bulkDeleteRooms = async (req, res) => {
+  try {
+    const { roomIds } = req.body;
+
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      return res.status(400).json({ error: 'Please provide an array of room IDs' });
+    }
+
+    const blocks = await Block.find();
+    let deletedCount = 0;
+    const deletedRooms = [];
+    const notFoundRooms = [];
+
+    // Delete rooms from Block model
+    for (const roomId of roomIds) {
+      let found = false;
+
+      for (const block of blocks) {
+        for (const floor of block.floors) {
+          const room = floor.rooms.id(roomId);
+          if (room) {
+            deletedRooms.push({
+              id: roomId,
+              code: room.code,
+              name: room.name
+            });
+            floor.rooms = floor.rooms.filter(r => r._id.toString() !== roomId);
+            await block.save();
+            deletedCount++;
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+
+      // Try legacy Room model if not found in blocks
+      if (!found) {
+        const room = await Room.findByIdAndDelete(roomId);
+        if (room) {
+          deletedRooms.push({
+            id: roomId,
+            code: room.code,
+            name: room.name
+          });
+          deletedCount++;
+        } else {
+          notFoundRooms.push(roomId);
+        }
+      }
+    }
+
+    res.json({
+      message: `Successfully deleted ${deletedCount} room(s)`,
+      deletedCount,
+      deletedRooms,
+      notFoundCount: notFoundRooms.length,
+      notFoundRooms,
+      totalRequested: roomIds.length
+    });
+
+  } catch (error) {
+    console.error('Error in bulk delete:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+

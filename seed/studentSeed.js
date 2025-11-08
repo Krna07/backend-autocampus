@@ -165,7 +165,7 @@ async function seedStudents() {
 
     // Find or create a sample section
     let section = await Section.findOne({ name: 'CSE-A' });
-    
+
     if (!section) {
       section = new Section({
         name: 'CSE-A',
@@ -185,15 +185,15 @@ async function seedStudents() {
     }
 
     // Clear existing students for this section
-    await User.deleteMany({ 
-      role: 'student', 
-      sectionRef: section._id 
+    await User.deleteMany({
+      role: 'student',
+      sectionRef: section._id
     });
     console.log('🧹 Cleared existing students');
 
     // Create students
     const hashedPassword = await bcrypt.hash('student123', 10);
-    
+
     for (const studentData of sampleStudents) {
       const student = new User({
         ...studentData,
@@ -220,12 +220,12 @@ async function seedStudents() {
     }
 
     // Update section strength
-    const studentCount = await User.countDocuments({ 
-      role: 'student', 
+    const studentCount = await User.countDocuments({
+      role: 'student',
       sectionRef: section._id,
-      isActive: true 
+      isActive: true
     });
-    
+
     section.strength = studentCount;
     await section.save();
     console.log(`✅ Updated section strength: ${studentCount}`);

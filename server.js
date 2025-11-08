@@ -1,15 +1,16 @@
+// Load environment variables FIRST before anything else
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const dotenv = require('dotenv');
 const routes = require('./routes/index');
 const { initSockets } = require('./sockets/socketHandlers');
 const RoomStatusScheduler = require('./services/roomStatusScheduler');
-
-dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +25,9 @@ const io = new Server(server, {
 
 // Initialize Socket.IO handlers
 initSockets(io);
+
+// Make io available globally for services
+global.io = io;
 
 // Middleware
 // app.use(cors({

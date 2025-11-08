@@ -80,8 +80,11 @@ async function seed() {
     const blocks = await Block.insertMany(blocksData);
     console.log("🏗️  Created blocks:", blocks.map(b => b.name).join(", "));
 
-    // --- ADMIN USER ---
+    // --- USERS (Admin, Faculty, Students) ---
     const adminPassword = await bcrypt.hash("admin123", 10);
+    const facultyPassword = await bcrypt.hash("faculty123", 10);
+    const studentPassword = await bcrypt.hash("student123", 10);
+    
     const admin = await User.create({
       name: "Admin User",
       email: "admin@smartcampus.edu",
@@ -114,12 +117,75 @@ async function seed() {
 
     // --- SECTION ---
     const section = await Section.create({
-      name: "3rd Year A",
+      name: "CSE-3A",
+      code: "CSE3A",
+      department: "Computer Science",
       year: 3,
-      preferredBuildings: ["N-Block", "U-Block"],
-      totalPeriodsPerWeek: 35
+      semester: 5,
+      academicYear: "2024-2025",
+      strength: 60,
+      maxStrength: 65,
+      preferredBuildings: ["N-Block", "U-Block"]
     });
     console.log("📚 Created section:", section.name);
+
+    // --- FACULTY USERS ---
+    const facultyUsers = await User.insertMany([
+      {
+        name: "Dr. Vinoj",
+        email: "vinoj@vignan.edu",
+        passwordHash: facultyPassword,
+        role: "faculty",
+        mobile: "9876543210"
+      },
+      {
+        name: "Ms. Bhargavi",
+        email: "bhargavi@vignan.edu",
+        passwordHash: facultyPassword,
+        role: "faculty",
+        mobile: "9876543211"
+      },
+      {
+        name: "Mr. Amaresh",
+        email: "amaresh@vignan.edu",
+        passwordHash: facultyPassword,
+        role: "faculty",
+        mobile: "9876543212"
+      }
+    ]);
+    console.log("👨‍🏫 Faculty users created:", facultyUsers.length);
+
+    // --- STUDENT USERS ---
+    const students = await User.insertMany([
+      {
+        name: "Student Demo",
+        email: "student@smartcampus.edu",
+        passwordHash: studentPassword,
+        role: "student",
+        regNumber: "21B01A0501",
+        mobile: "9876543220",
+        sectionRef: section._id
+      },
+      {
+        name: "John Doe",
+        email: "john.doe@student.edu",
+        passwordHash: studentPassword,
+        role: "student",
+        regNumber: "21B01A0502",
+        mobile: "9876543221",
+        sectionRef: section._id
+      },
+      {
+        name: "Jane Smith",
+        email: "jane.smith@student.edu",
+        passwordHash: studentPassword,
+        role: "student",
+        regNumber: "21B01A0503",
+        mobile: "9876543222",
+        sectionRef: section._id
+      }
+    ]);
+    console.log("👨‍🎓 Student users created:", students.length);
 
     // --- MAPPINGS ---
     const mappings = await Mapping.insertMany([
@@ -166,11 +232,15 @@ async function seed() {
     console.log("\n📋 Summary:");
     console.log("   🏗️  Blocks: N-Block, U-Block");
     console.log("   🏢 Floors + rooms seeded dynamically");
-    console.log("   👑 Admin, Faculty");
+    console.log("   👑 Admin: 1 user");
+    console.log("   👨‍🏫 Faculty: " + facultyUsers.length + " users");
+    console.log("   👨‍🎓 Students: " + students.length + " users");
     console.log("   📚 Section, Subjects, Mappings");
     console.log("   📅 Demo Timetable");
     console.log("\n📋 Login Credentials:");
-    console.log("   Admin: admin@smartcampus.edu / admin123");
+    console.log("   Admin:   admin@smartcampus.edu / admin123");
+    console.log("   Faculty: vinoj@vignan.edu / faculty123");
+    console.log("   Student: student@smartcampus.edu / student123");
 
     await mongoose.connection.close();
     process.exit(0);

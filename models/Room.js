@@ -94,7 +94,7 @@ const roomSchema = new mongoose.Schema({
 });
 
 // Middleware to detect room status changes and trigger conflict detection
-roomSchema.pre('save', function(next) {
+roomSchema.pre('save', function (next) {
   // Store the original status before save
   if (this.isModified('status')) {
     this._originalStatus = this.constructor.findOne({ _id: this._id })
@@ -104,19 +104,19 @@ roomSchema.pre('save', function(next) {
   next();
 });
 
-roomSchema.post('save', async function(doc) {
+roomSchema.post('save', async function (doc) {
   // Only trigger conflict detection if status was modified
   if (doc._originalStatus !== undefined) {
     try {
       const originalStatus = await doc._originalStatus;
-      
+
       // Only process if status actually changed
       if (originalStatus && originalStatus !== doc.status) {
         console.log(`[Room Model] Status changed for room ${doc.code}: ${originalStatus} -> ${doc.status}`);
-        
+
         // Import conflict detection service (lazy load to avoid circular dependency)
         const conflictDetectionService = require('../services/conflictDetectionService');
-        
+
         // Trigger conflict detection asynchronously
         setImmediate(async () => {
           try {
@@ -133,16 +133,16 @@ roomSchema.post('save', async function(doc) {
 });
 
 // Middleware for findOneAndUpdate
-roomSchema.pre('findOneAndUpdate', async function(next) {
+roomSchema.pre('findOneAndUpdate', async function (next) {
   // Get the update operation
   const update = this.getUpdate();
-  
+
   // Check if status is being updated
   if (update.$set && update.$set.status) {
     try {
       // Find the document being updated
       const docToUpdate = await this.model.findOne(this.getQuery());
-      
+
       if (docToUpdate) {
         // Store original status in the update context
         this._originalStatus = docToUpdate.status;
@@ -152,23 +152,23 @@ roomSchema.pre('findOneAndUpdate', async function(next) {
       console.error('[Room Model] Error in pre-update hook:', error);
     }
   }
-  
+
   next();
 });
 
-roomSchema.post('findOneAndUpdate', async function(doc) {
+roomSchema.post('findOneAndUpdate', async function (doc) {
   // Check if we have stored original status
   if (this._originalStatus && doc) {
     const originalStatus = this._originalStatus;
     const newStatus = doc.status;
-    
+
     // Only process if status actually changed
     if (originalStatus !== newStatus) {
       console.log(`[Room Model] Status changed for room ${doc.code}: ${originalStatus} -> ${newStatus}`);
-      
+
       // Import conflict detection service (lazy load to avoid circular dependency)
       const conflictDetectionService = require('../services/conflictDetectionService');
-      
+
       // Trigger conflict detection asynchronously
       setImmediate(async () => {
         try {

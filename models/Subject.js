@@ -27,6 +27,14 @@ const subjectSchema = new mongoose.Schema({
     type: String,
     enum: ['Classroom', 'Lab'],
     default: 'Classroom'
+  },
+  requiredEquipment: [{
+    type: String,
+    trim: true
+  }],
+  requiresLab: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

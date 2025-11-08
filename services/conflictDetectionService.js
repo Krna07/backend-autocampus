@@ -12,6 +12,15 @@ class ConflictDetectionService {
     try {
       console.log(`[ConflictDetection] Room ${room.code} status changed from ${oldStatus} to ${room.status}`);
       
+      // Send enhanced notification about room status change (always, regardless of conflicts)
+      try {
+        const io = global.io; // Get Socket.IO instance from global
+        await notificationService.notifyRoomStatusChange(room, io);
+      } catch (notifError) {
+        console.error('[ConflictDetection] Error sending room status notification:', notifError);
+        // Don't fail the process if notification fails
+      }
+      
       // Only process if status changed to unavailable
       const unavailableStatuses = ['in_maintenance', 'reserved', 'closed', 'offline'];
       

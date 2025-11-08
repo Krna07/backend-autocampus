@@ -50,3 +50,21 @@ exports.getRoomHistory = async (req, res) => {
   }
 };
 
+exports.getFacultyWorkload = async (req, res) => {
+  try {
+    const workload = await analyticsService.getFacultyWorkload();
+    res.json(workload);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getRoomUsageRanking = async (req, res) => {
+  try {
+    const ranking = await analyticsService.getRoomUsageRanking();
+    res.json(ranking);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+

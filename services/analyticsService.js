@@ -429,6 +429,196 @@ class AnalyticsService {
     return timeSlots[period] || 'Unknown';
   }
 
+  // New method for faculty workload analytics
+  async getFacultyWorkload() {
+    try {
+      const Faculty = require('../models/Faculty');
+      const timetables = await Timetable.find({ isPublished: true })
+        .populate('schedule.facultyRef', 'name email department')
+        .populate('schedule.subjectRef', 'name code type')
+        .populate('sectionRef', 'name year');
+
+      const facultyWorkload = {};
+      const facultyList = await Faculty.find();
+
+      // Initialize all faculty with zero classes
+      facultyList.forEach(faculty => {
+        facultyWorkload[faculty._id.toString()] = {
+          faculty: {
+            _id: faculty._id,
+            name: faculty.name,
+            email: faculty.email,
+            department: faculty.department
+          },
+          totalClasses: 0,
+          totalHours: 0,
+          subjects: new Set(),
+          sections: new Set(),
+          schedule: []
+        };
+      });
+
+      // Count classes for each faculty
+      timetables.forEach(timetable => {
+        timetable.schedule.forEach(session => {
+          if (session.facultyRef) {
+            const facultyId = session.facultyRef._id.toString();
+            
+            if (!facultyWorkload[facultyId]) {
+              facultyWorkload[facultyId] = {
+                faculty: {
+                  _id: session.facultyRef._id,
+                  name: session.facultyRef.name,
+                  email: session.facultyRef.email,
+                  department: session.facultyRef.department
+                },
+                totalClasses: 0,
+                totalHours: 0,
+                subjects: new Set(),
+                sections: new Set(),
+                schedule: []
+              };
+            }
+
+            facultyWorkload[facultyId].totalClasses++;
+            facultyWorkload[facultyId].totalHours += 0.83; // ~50 minutes per class
+            
+            if (session.subjectRef) {
+              facultyWorkload[facultyId].subjects.add(session.subjectRef.name);
+            }
+            
+            if (timetable.sectionRef) {
+              facultyWorkload[facultyId].sections.add(timetable.sectionRef.name);
+            }
+
+            facultyWorkload[facultyId].schedule.push({
+              day: session.day,
+              period: session.period,
+              subject: session.subjectRef?.name || 'Unknown',
+              section: timetable.sectionRef?.name || 'Unknown',
+              time: this.getPeriodTimeSlot(session.period)
+            });
+          }
+        });
+      });
+
+      // Convert Sets to arrays and calculate stats
+      const workloadArray = Object.values(facultyWorkload).map(data => ({
+        ...data,
+        subjects: Array.from(data.subjects),
+        sections: Array.from(data.sections),
+        subjectCount: data.subjects.size,
+        sectionCount: data.sections.size,
+        totalHours: Math.round(data.totalHours * 10) / 10
+      }));
+
+      // Sort by total classes
+      const sortedByClasses = [...workloadArray].sort((a, b) => b.totalClasses - a.totalClasses);
+
+      // Calculate statistics
+      const totalFaculty = workloadArray.length;
+      const avgClasses = workloadArray.reduce((sum, f) => sum + f.totalClasses, 0) / totalFaculty;
+      const maxClasses = sortedByClasses[0]?.totalClasses || 0;
+      const minClasses = sortedByClasses[sortedByClasses.length - 1]?.totalClasses || 0;
+
+      return {
+        facultyWorkload: sortedByClasses,
+        mostLoaded: sortedByClasses.slice(0, 5),
+        leastLoaded: sortedByClasses.slice(-5).reverse(),
+        statistics: {
+          totalFaculty,
+          avgClasses: Math.round(avgClasses * 10) / 10,
+          maxClasses,
+          minClasses,
+          totalClasses: workloadArray.reduce((sum, f) => sum + f.totalClasses, 0)
+        }
+      };
+    } catch (error) {
+      throw new Error(`Faculty workload calculation failed: ${error.message}`);
+    }
+  }
+
+  // New method for room usage ranking
+  async getRoomUsageRanking() {
+    try {
+      const rooms = await Room.find({ status: 'active' });
+      const timetables = await Timetable.find({ isPublished: true })
+        .populate('schedule.roomRef')
+        .populate('schedule.subjectRef');
+
+      const roomUsage = {};
+
+      // Initialize all rooms
+      rooms.forEach(room => {
+        roomUsage[room._id.toString()] = {
+          room: {
+            _id: room._id,
+            code: room.code,
+            name: room.name,
+            type: room.type,
+            capacity: room.capacity,
+            building: room.building
+          },
+          totalSessions: 0,
+          totalHours: 0,
+          subjects: new Set(),
+          sections: new Set(),
+          utilizationScore: 0
+        };
+      });
+
+      // Count sessions for each room
+      timetables.forEach(timetable => {
+        timetable.schedule.forEach(session => {
+          if (session.roomRef) {
+            const roomId = session.roomRef._id.toString();
+            
+            if (roomUsage[roomId]) {
+              roomUsage[roomId].totalSessions++;
+              roomUsage[roomId].totalHours += 0.83;
+              
+              if (session.subjectRef) {
+                roomUsage[roomId].subjects.add(session.subjectRef.name);
+              }
+              
+              roomUsage[roomId].sections.add(timetable.sectionRef?.toString() || 'Unknown');
+            }
+          }
+        });
+      });
+
+      // Calculate utilization scores (out of 48 possible periods per week: 6 days * 8 periods)
+      const maxPossibleSessions = 48;
+      const usageArray = Object.values(roomUsage).map(data => ({
+        ...data,
+        subjects: Array.from(data.subjects),
+        sections: Array.from(data.sections),
+        subjectCount: data.subjects.size,
+        sectionCount: data.sections.size,
+        totalHours: Math.round(data.totalHours * 10) / 10,
+        utilizationScore: Math.round((data.totalSessions / maxPossibleSessions) * 100 * 10) / 10
+      }));
+
+      // Sort by total sessions
+      const sortedByUsage = [...usageArray].sort((a, b) => b.totalSessions - a.totalSessions);
+
+      return {
+        roomUsage: sortedByUsage,
+        mostUsed: sortedByUsage.slice(0, 10),
+        leastUsed: sortedByUsage.slice(-10).reverse(),
+        statistics: {
+          totalRooms: usageArray.length,
+          avgSessions: Math.round((usageArray.reduce((sum, r) => sum + r.totalSessions, 0) / usageArray.length) * 10) / 10,
+          maxSessions: sortedByUsage[0]?.totalSessions || 0,
+          minSessions: sortedByUsage[sortedByUsage.length - 1]?.totalSessions || 0,
+          totalSessions: usageArray.reduce((sum, r) => sum + r.totalSessions, 0)
+        }
+      };
+    } catch (error) {
+      throw new Error(`Room usage ranking failed: ${error.message}`);
+    }
+  }
+
   // New method for attendance analytics
   async getAttendanceAnalytics(startDate, endDate) {
     try {
